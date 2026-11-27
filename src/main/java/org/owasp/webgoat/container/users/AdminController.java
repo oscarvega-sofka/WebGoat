@@ -6,12 +6,15 @@ package org.owasp.webgoat.container.users;
 
 import java.security.SecureRandom;
 import java.util.List;
+import java.util.regex.Pattern;
 import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.owasp.webgoat.container.i18n.PluginMessages;
 import org.owasp.webgoat.container.session.Course;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -34,12 +37,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/service/admin")
 @AllArgsConstructor
 @EnableMethodSecurity
+@Slf4j
 public class AdminController {
 
   private static final String CHARS =
       "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$";
   private static final int TEMP_PASSWORD_LENGTH = 12;
   private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+  // Local accounts use [a-z0-9-]; OAuth logins may add upper case, '.', '_' and '@'.
+  private static final Pattern VALID_USERNAME = Pattern.compile("^[A-Za-z0-9._@-]{1,45}$");
 
   private final UserService userService;
   private final UserProgressRepository userProgressRepository;
@@ -159,11 +165,18 @@ public class AdminController {
   @PostMapping("/users/{username}/reset-password")
   @PreAuthorize("hasAuthority('WEBGOAT_ADMIN')")
   public ResponseEntity<PasswordResetResponse> resetPassword(@PathVariable String username) {
+    if (!VALID_USERNAME.matcher(username).matches()) {
+      return ResponseEntity.badRequest().build();
+    }
     String tempPassword = generateTemporaryPassword();
     try {
       userService.resetPassword(username, tempPassword);
-    } catch (Exception e) {
+    } catch (UsernameNotFoundException e) {
       return ResponseEntity.notFound().build();
+    } catch (RuntimeException e) {
+      // Never echo internal details (SQL, paths, stack traces) back to the client.
+      log.error("Password reset failed", e);
+      return ResponseEntity.internalServerError().build();
     }
     return ResponseEntity.ok(new PasswordResetResponse(username, tempPassword));
   }
