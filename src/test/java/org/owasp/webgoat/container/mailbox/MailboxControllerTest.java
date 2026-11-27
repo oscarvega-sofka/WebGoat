@@ -24,6 +24,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.owasp.webgoat.container.plugins.LessonTest;
 import org.springframework.http.MediaType;
@@ -68,6 +69,26 @@ class MailboxControllerTest extends LessonTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsBytes(email)))
         .andExpect(status().isCreated());
+  }
+
+  @Test
+  public void sendingMailShouldIgnoreClientSuppliedId() throws Exception {
+    String body =
+        """
+        {"id": 1, "read": true, "sender": "hacker@webgoat.org",
+         "recipient": "victim@webgoat.org", "title": "Overwritten", "contents": "pwned"}
+        """;
+    this.mockMvc
+        .perform(post("/mail").contentType(MediaType.APPLICATION_JSON).content(body))
+        .andExpect(status().isCreated());
+
+    ArgumentCaptor<Email> saved = ArgumentCaptor.forClass(Email.class);
+    Mockito.verify(mailbox).save(saved.capture());
+    assertThat(saved.getValue().getId()).isNull();
+    assertThat(saved.getValue().isRead()).isFalse();
+    assertThat(saved.getValue().getTimestamp()).isNotNull();
+    assertThat(saved.getValue().getRecipient()).isEqualTo("victim@webgoat.org");
+    assertThat(saved.getValue().getTitle()).isEqualTo("Overwritten");
   }
 
   @Test
